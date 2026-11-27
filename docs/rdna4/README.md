@@ -303,3 +303,36 @@ Two structural findings behind those rows:
   because a straddling tile must stage both experts' weights, and weight staging is 2/3 of
   the per-tile staging volume. A single big GEMM pays none of this because it has no expert
   boundaries; a grouped MoE cannot avoid it.
+
+## Context depth: the page table is not a context limit
+
+`SPARSE_MAX_PAGES` is `262144 / SPARSE_PAGE_SIZE`, i.e. the sparse page table is sized to exactly
+the model's nominal context. With it, any `-c` above 263,680 is rejected:
+
+```
+InklingEngine: --sparse-pages supports max_ctx <= 263680 (requested 393216 = 6144 pages > 4096 scored + 24 recent)
+```
+
+That reads like an architectural limit. It is not - the table is an index, and the scratch cost
+is only ~4 B per page per KV head. Raising it to `2097152 / SPARSE_PAGE_SIZE` (2M tokens of
+table, ~16 MiB of page scores) leaves VRAM as the only bound.
+
+Raw depth on a 32 GB R9700 (3-code needle at 25/50/75% depth, cold):
+
+| prompt tokens | result |
+|---:|---|
+| 203,124 | 3/3 PASS |
+| 462,830 | 3/3 PASS |
+| 693,830 | 3/3 PASS |
+| 925,531 | 3/3 PASS |
+| 959,823 | empty reply |
+
+So retrieval holds to ~925K tokens (3.5x the 262,144 training context, thanks to sliding-window
+layers + a relative-position bias + sparse global attention) and then fails abruptly with no
+output. VRAM: a 1M-token pool is 28.4 GiB resident (q4_0 KV, ~9.3 KiB/token); 1.25M leaves
+0.07 GiB free; 1.5M aborts. The sparse page budget does not matter at depth - 112/224/320 pages
+all pass at 693K and speed varies by 2%.
+
+**Gotcha:** `SPARSE_MAX_QB` must stay `>= (MAX_UBATCH + SPARSE_PAGE_SIZE - 1) / SPARSE_PAGE_SIZE`
+(= 41). The `// 8` comment next to it is stale (it predates the 64-token page size), and
+shrinking it to the decode-slot count silently breaks prefill attention at *every* depth.

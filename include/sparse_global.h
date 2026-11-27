@@ -50,7 +50,7 @@ namespace inkling {
 // ============================================================================
 
 constexpr int SPARSE_PAGE_SIZE        = 64;
-constexpr int SPARSE_MAX_PAGES        = 262144 / SPARSE_PAGE_SIZE;        // 4096
+constexpr int SPARSE_MAX_PAGES        = 2097152 / SPARSE_PAGE_SIZE;        // 32768 pages: the table is an index, not a capability limit; VRAM bounds the pool
 constexpr int SPARSE_MAX_SELECTED     = 256;                              // per (q_block, kv_head); allows budgets up to 254
 constexpr int SPARSE_SINK_PAGES       = 2;                                // pages [0, 1]
 constexpr int SPARSE_RECENT_PAGES     = 24;                               // 1536 tokens >= 1024 RelBias window
